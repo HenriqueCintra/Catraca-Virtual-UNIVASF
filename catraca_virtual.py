@@ -30,6 +30,8 @@ known_user_data = []
 last_recognition_time = 0
 RECOGNITION_COOLDOWN = 3  # segundos entre reconhecimentos
 
+
+
 # --- FUNÇÕES AUXILIARES E DE SETUP ---
 
 def setup():
@@ -74,13 +76,17 @@ def setup_database():
         )
     ''')
     
+
+    
     conn.commit()
     conn.close()
     print("🗃️ Banco de dados configurado.")
 
-def sanitizar_cpf(cpf: str) -> str:
-    """Remove caracteres não numéricos de um CPF."""
-    return re.sub(r'\D', '', cpf)
+def sanitizar_matricula(matricula: str) -> str:
+    """Remove espaços em branco e normaliza matrícula."""
+    return matricula.strip().upper()
+
+
 
 def draw_face_landmarks(frame, face_location, color=(0, 255, 0), thickness=2):
     """Desenha marcos faciais estilizados similar à imagem de referência."""
@@ -108,27 +114,30 @@ def draw_face_landmarks(frame, face_location, color=(0, 255, 0), thickness=2):
     cv2.line(frame, (right, bottom), (right - corner_length, bottom), color, thickness)
     cv2.line(frame, (right, bottom), (right, bottom - corner_length), color, thickness)
     
-    # Linhas diagonais internas (efeito de análise)
+    # Centro da face
     center_x = (left + right) // 2
     center_y = (top + bottom) // 2
     
-    # Linhas cruzadas no centro
-    cross_size = min(width, height) // 8
-    cv2.line(frame, (center_x - cross_size, center_y), (center_x + cross_size, center_y), color, 1)
-    cv2.line(frame, (center_x, center_y - cross_size), (center_x, center_y + cross_size), color, 1)
+    # Círculo central pequeno
+    cv2.circle(frame, (center_x, center_y), 3, color, -1)
     
-    # Pontos de análise facial
+    # Linhas de referência cruzando o centro
+    cv2.line(frame, (center_x - 10, center_y), (center_x + 10, center_y), color, 1)
+    cv2.line(frame, (center_x, center_y - 10), (center_x, center_y + 10), color, 1)
+    
+    # Pontos de referência nas laterais
     points = [
-        (center_x, top + height // 4),  # Testa
-        (left + width // 4, center_y),  # Olho esquerdo área
-        (right - width // 4, center_y),  # Olho direito área
-        (center_x, center_y + height // 6),  # Nariz
-        (center_x, bottom - height // 4)  # Boca
+        (left, center_y),  # Esquerda
+        (right, center_y),  # Direita
+        (center_x, top),    # Topo
+        (center_x, bottom)  # Base
     ]
     
     for point in points:
         cv2.circle(frame, point, 3, color, -1)
         cv2.circle(frame, point, 8, color, 1)
+
+
 
 def draw_recognition_interface(frame, face_locations, face_names, distances, passage_times=None):
     """Desenha a interface de identificação facial."""
@@ -162,7 +171,7 @@ def draw_recognition_interface(frame, face_locations, face_names, distances, pas
             # Texto pessoa não cadastrada
             cv2.putText(frame, status, (left + 6, bottom + 25), cv2.FONT_HERSHEY_DUPLEX, 0.7, color, 2)
     
-    # Interface de status no topo apenas
+    # Interface de status no topo (simplificada)
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (frame.shape[1], 80), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
@@ -172,7 +181,7 @@ def draw_recognition_interface(frame, face_locations, face_names, distances, pas
     cv2.putText(frame, f"Pessoas cadastradas: {len(known_face_encodings)} | Rostos detectados: {len(face_locations)}", 
                 (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-def capturar_rosto_otimizado(cpf_sanitizado: str) -> bool:
+def capturar_rosto_otimizado(matricula_sanitizada: str) -> bool:
     """
     Captura rosto de forma otimizada para melhor reconhecimento.
     """
@@ -260,7 +269,7 @@ def capturar_rosto_otimizado(cpf_sanitizado: str) -> bool:
                 print("💾 Salvando melhor foto capturada...")
                 
                 # Criar diretório
-                caminho_usuario = os.path.join(USUARIOS_DIR, cpf_sanitizado)
+                caminho_usuario = os.path.join(USUARIOS_DIR, matricula_sanitizada)
                 os.makedirs(caminho_usuario, exist_ok=True)
                 
                 # Salvar foto
@@ -290,9 +299,9 @@ def capturar_rosto_otimizado(cpf_sanitizado: str) -> bool:
     cv2.destroyAllWindows()
     return False
 
-def capturar_rosto(cpf_sanitizado: str) -> bool:
+def capturar_rosto(matricula_sanitizada: str) -> bool:
     """Função de compatibilidade."""
-    return capturar_rosto_otimizado(cpf_sanitizado)
+    return capturar_rosto_otimizado(matricula_sanitizada)
 
 def iniciar_camera_continua():
     """Inicia a câmera em modo contínuo para reconhecimento."""
@@ -568,31 +577,27 @@ def cadastrar_usuario_db():
         print("❌ Equipe é obrigatória.")
         return False
     
-    # Simplificar CPF - aceitar qualquer sequência de números
+    # Coleta matrícula - formato livre
     while True:
-        cpf = input("🆔 CPF (11 dígitos): ").strip()
-        cpf_sanitizado = sanitizar_cpf(cpf)
+        matricula = input("🎫 Matrícula: ").strip()
+        matricula_sanitizada = sanitizar_matricula(matricula)
         
-        if len(cpf_sanitizado) == 11:
+        if len(matricula_sanitizada) > 0:
             break
-        elif len(cpf_sanitizado) == 0:
-            print("❌ Digite o CPF.")
-            continue
         else:
-            print(f"❌ CPF deve ter 11 dígitos. Você digitou {len(cpf_sanitizado)} dígitos.")
-            print(f"💡 Exemplo: 12345678901")
+            print("❌ Digite a matrícula.")
             continue
 
     # Verificar se usuário já existe
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute('SELECT nome FROM usuarios WHERE cpf = ?', (cpf_sanitizado,))
+        cursor.execute('SELECT nome FROM usuarios WHERE cpf = ?', (matricula_sanitizada,))
         existing = cursor.fetchone()
         conn.close()
         
         if existing:
-            print(f"❌ Pessoa '{existing[0]}' já cadastrada com este CPF.")
+            print(f"❌ Pessoa '{existing[0]}' já cadastrada com esta matrícula.")
             return False
     except Exception as e:
         print(f"❌ Erro ao verificar CPF: {e}")
@@ -603,13 +608,13 @@ def cadastrar_usuario_db():
     input("📷 Pressione ENTER quando estiver pronto...")
     
     # Capturar foto de forma mais simples
-    if capturar_foto_simples(cpf_sanitizado, nome):
-        foto_path = os.path.join(USUARIOS_DIR, cpf_sanitizado, "foto.jpg")
+    if capturar_foto_simples(matricula_sanitizada, nome):
+        foto_path = os.path.join(USUARIOS_DIR, matricula_sanitizada, "foto.jpg")
         
         # Salvar no banco de dados
-        if salvar_usuario_db(nome, equipe, cpf_sanitizado, foto_path):
+        if salvar_usuario_db(nome, equipe, matricula_sanitizada, foto_path):
             print(f"\n✅ {nome} cadastrado com sucesso!")
-            print(f"📁 CPF: {cpf_sanitizado}")
+            print(f"📁 Matrícula: {matricula_sanitizada}")
             print(f"🏢 Equipe: {equipe}")
             print(f"📸 Foto salva")
             return True
@@ -620,7 +625,7 @@ def cadastrar_usuario_db():
     
     return False
 
-def capturar_foto_simples(cpf_sanitizado: str, nome: str) -> bool:
+def capturar_foto_simples(matricula_sanitizada: str, nome: str) -> bool:
     """Captura foto de forma mais simples e direta."""
     print("🎥 Abrindo câmera...")
     
@@ -699,7 +704,7 @@ def capturar_foto_simples(cpf_sanitizado: str, nome: str) -> bool:
                 print(f"📸 Foto capturada! Qualidade: {melhor_score:.0f}%")
                 
                 # Criar diretório e salvar
-                caminho_usuario = os.path.join(USUARIOS_DIR, cpf_sanitizado)
+                caminho_usuario = os.path.join(USUARIOS_DIR, matricula_sanitizada)
                 os.makedirs(caminho_usuario, exist_ok=True)
                 
                 caminho_foto = os.path.join(caminho_usuario, "foto.jpg")
@@ -998,8 +1003,10 @@ def listar_usuarios_db():
     except Exception as e:
         print(f"❌ Erro ao listar usuários: {e}")
 
+
+
 def iniciar_servidor_web():
-    """Inicia o servidor web para cadastro remoto."""
+    """Inicia o servidor web local para cadastro via celular."""
     try:
         import subprocess
         import socket
@@ -1017,13 +1024,13 @@ def iniciar_servidor_web():
         local_ip = get_local_ip()
         port = 5000
         
-        print(f"\n🌐 === INICIANDO SERVIDOR WEB ===")
+        print(f"\n📱 === SERVIDOR LOCAL INICIADO ===")
         print(f"📱 Acesse pelo celular: http://{local_ip}:{port}")
         print(f"💻 Acesse pelo computador: http://localhost:{port}")
         print(f"📊 Status: http://{local_ip}:{port}/status")
         print(f"🛑 Para parar: Ctrl+C")
         print("=" * 50)
-        print("💡 Deixe este servidor rodando e use o celular para cadastrar!")
+        print("💡 Interface por etapas com design moderno!")
         print("💡 Pressione Ctrl+C quando terminar de cadastrar")
         
         # Executar servidor web
@@ -1043,7 +1050,7 @@ def menu_sistema():
         print("\n=== SISTEMA DE IDENTIFICAÇÃO - CATRACA ===")
         print("1. 🎥 Iniciar sistema de identificação")
         print("2. 👤 Cadastrar nova pessoa (terminal)")
-        print("3. 📱 Cadastrar via celular (servidor web)")
+        print("3. 📱 Cadastrar via celular (interface por etapas)")
         print("4. 📊 Visualizar registro de passagens")
         print("5. 👥 Listar pessoas cadastradas")
         print("6. 🚪 Sair")
