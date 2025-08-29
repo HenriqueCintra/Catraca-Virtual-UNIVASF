@@ -164,4 +164,3 @@ Sistema desenvolvido em Python para controle de acesso com reconhecimento facial
 ---
 
 **Nota**: Este sistema foi projetado para uso local e educacional. Para uso em produção, considere implementar medidas adicionais de segurança.
-
